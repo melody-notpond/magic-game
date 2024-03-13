@@ -32,6 +32,7 @@ pub(super) struct ChunkMeshUpdate {
     y: i32,
     z: i32,
     vertices: Vec<[f32; 3]>,
+    normals: Vec<[f32; 3]>,
     indices: Vec<u32>,
 }
 
@@ -51,6 +52,7 @@ pub(super) fn handle_chunk_constructions(
     };
 
     let mut vertices: Vec<[f32; 3]> = Vec::new();
+    let mut normals: Vec<[f32; 3]> = Vec::new();
     let mut indices: Vec<u32> = Vec::new();
     for x in 0..CHUNK_SIZE_I32 {
         for y in 0..CHUNK_SIZE_I32 {
@@ -78,7 +80,8 @@ pub(super) fn handle_chunk_constructions(
                     }
 
                     indices.extend(CUBE_INDICES.iter().map(|i| i + vertices.len() as u32));
-                    vertices.extend(CUBE_FACES[face].iter().map(|t| [
+                    normals.extend(&CUBE_NORMALS[face]);
+                    vertices.extend(CUBE_VERTICES[face].iter().map(|t| [
                         t[0] + chunk_x as f32 * CHUNK_DIM + x as f32,
                         t[1] + chunk_y as f32 * CHUNK_DIM + y as f32,
                         t[2] + chunk_z as f32 * CHUNK_DIM + z as f32,
@@ -93,6 +96,7 @@ pub(super) fn handle_chunk_constructions(
         y: chunk_y,
         z: chunk_z,
         vertices,
+        normals,
         indices,
     });
 }
@@ -104,13 +108,17 @@ pub(super) fn handle_chunk_mesh_update(
     mut materials: ResMut<Assets<StandardMaterial>>,
     voxels: Res<Voxels>,
 ) {
-    for ChunkMeshUpdate { x, y, z, vertices, indices } in rx.read() {
+    for ChunkMeshUpdate { x, y, z, vertices, normals, indices } in rx.read() {
         let (x, y, z) = (*x, *y, *z);
         if let Some(chunk) = voxels.get_chunk(x, y, z) {
             let mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
                 .with_inserted_attribute(
                     Mesh::ATTRIBUTE_POSITION,
                     vertices.clone(),
+                )
+                .with_inserted_attribute(
+                    Mesh::ATTRIBUTE_NORMAL,
+                    normals.clone(),
                 )
                 .with_inserted_indices(Indices::U32(indices.clone()));
             let material = StandardMaterial {

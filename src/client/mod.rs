@@ -17,6 +17,16 @@ pub(crate) fn setup_scene(
     window.cursor.grab_mode = CursorGrabMode::Locked;
 
     commands.init_resource::<Paused>();
+    commands.spawn(DirectionalLightBundle {
+        directional_light: DirectionalLight {
+            color: Color::rgb_u8(255, 255, 200),
+            illuminance: 10_000.0,
+            shadows_enabled: true,
+            ..Default::default()
+        },
+        transform: Transform::from_xyz(1.0, 2.0, 1.0).looking_at(Vec3::ZERO, Vec3::Y),
+        ..Default::default()
+    });
 }
 
 pub(crate) fn setup_camera(mut commands: Commands) {

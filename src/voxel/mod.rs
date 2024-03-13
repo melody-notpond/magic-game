@@ -260,7 +260,9 @@ fn post_setup_voxels_test(
         for x in 0..CHUNK_SIZE_I32 {
             for y in 0..CHUNK_SIZE_I32 {
                 for z in 0..CHUNK_SIZE_I32 {
-                    voxels.set_block(x, y, z, solid);
+                    if rand::random() {
+                        voxels.set_block(x, y, z, solid);
+                    }
                 }
             }
         }
