@@ -11,20 +11,12 @@ pub struct Paused(bool);
 pub(crate) fn setup_scene(
     mut commands: Commands,
     mut windows: Query<&mut Window>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let mut window = windows.single_mut();
     window.cursor.visible = false;
     window.cursor.grab_mode = CursorGrabMode::Locked;
 
     commands.init_resource::<Paused>();
-    commands.spawn(PbrBundle {
-        mesh: meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
-        material: materials.add(Color::rgb_u8(124, 144, 255)),
-        transform: Transform::from_xyz(0.0, 0.5, 0.0),
-        ..Default::default()
-    });
 }
 
 pub(crate) fn setup_camera(mut commands: Commands) {
