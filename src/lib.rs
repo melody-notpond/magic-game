@@ -12,7 +12,11 @@ impl Plugin for GamePlugin {
         app
             .add_plugins(VoxelPlugin)
             .add_systems(Startup, (client::setup_camera, client::setup_scene))
-            .add_systems(Update, (client::handle_input, client::handle_mouse))
+            .add_systems(Update, (
+                client::handle_input,
+                client::handle_mouse,
+                client::generate_chunk
+            ))
         ;
     }
 }

@@ -2,26 +2,44 @@ use crate::*;
 use bevy::render::mesh::Indices;
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::render::render_resource::PrimitiveTopology;
-use voxel::{CHUNK_SIZE_I32, CHUNK_DIM, Voxels};
+use voxel::{CHUNK_SIZE_I32, Voxels};
 use voxel::mesh_data::*;
 
 #[derive(Component)]
-pub(super) struct LoadedChunk;
+pub(super) struct Chunk {
+    pub(super) loaded: bool,
+    pub(super) mark: bool,
+}
 
 #[derive(Component)]
 pub struct ChunkLoader {
-    pub radius: i32,
+    pub x_radius: i32,
+    pub y_radius: i32,
+    pub z_radius: i32,
 }
 
 #[derive(Event)]
-pub(super) struct ConstructChunkMesh {
-    x: i32,
-    y: i32,
-    z: i32,
+pub struct GenerateChunk {
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+}
+
+impl GenerateChunk {
+    pub fn new(x: i32, y: i32, z: i32) -> GenerateChunk {
+        GenerateChunk { x, y, z }
+    }
+}
+
+#[derive(Event)]
+pub struct ConstructChunkMesh {
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
 }
 
 impl ConstructChunkMesh {
-    pub(super) fn new(x: i32, y: i32, z: i32) -> ConstructChunkMesh {
+    pub fn new(x: i32, y: i32, z: i32) -> ConstructChunkMesh {
         ConstructChunkMesh { x, y, z }
     }
 }
@@ -72,7 +90,11 @@ pub(super) fn handle_chunk_constructions(
                         (0, -1, 0),
                         (0, 0, -1),
                     ][face];
-                    let neighbor = chunk.get_block(x + x_off, y + y_off, z + z_off);
+                    let neighbor = voxels.get_block(
+                        chunk_x * CHUNK_SIZE_I32 + x + x_off,
+                        chunk_y * CHUNK_SIZE_I32 + y + y_off,
+                        chunk_z * CHUNK_SIZE_I32 + z + z_off,
+                    );
                     let neighbor_config = &voxels.configs[&neighbor];
 
                     if neighbor_config.render {
@@ -81,10 +103,10 @@ pub(super) fn handle_chunk_constructions(
 
                     indices.extend(CUBE_INDICES.iter().map(|i| i + vertices.len() as u32));
                     normals.extend(&CUBE_NORMALS[face]);
-                    vertices.extend(CUBE_VERTICES[face].iter().map(|t| [
-                        t[0] + chunk_x as f32 * CHUNK_DIM + x as f32,
-                        t[1] + chunk_y as f32 * CHUNK_DIM + y as f32,
-                        t[2] + chunk_z as f32 * CHUNK_DIM + z as f32,
+                    vertices.extend(CUBE_VERTICES[face].iter().map(|v| [
+                        v[0] + x as f32,
+                        v[1] + y as f32,
+                        v[2] + z as f32,
                     ]));
                 }
             }

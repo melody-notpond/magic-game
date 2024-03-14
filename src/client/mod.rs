@@ -1,6 +1,7 @@
 use bevy::{window::CursorGrabMode, input::mouse::MouseMotion};
+use noise::{NoiseFn, Perlin};
 
-use crate::*;
+use crate::{*, voxel::{components::{GenerateChunk, ConstructChunkMesh, ChunkLoader}, Voxels, CHUNK_DIM, CHUNK_SIZE_I32, VoxelConfigEntry}};
 
 #[derive(Component)]
 pub struct Player;
@@ -8,15 +9,26 @@ pub struct Player;
 #[derive(Resource, Default)]
 pub struct Paused(bool);
 
+#[derive(Resource, Default)]
+pub struct Noise(Perlin);
+
 pub(crate) fn setup_scene(
     mut commands: Commands,
     mut windows: Query<&mut Window>,
+    mut voxels: ResMut<Voxels>,
 ) {
     let mut window = windows.single_mut();
     window.cursor.visible = false;
     window.cursor.grab_mode = CursorGrabMode::Locked;
 
+    voxels.add_voxel("solid", VoxelConfigEntry {
+        debug_name: "solid".to_owned(),
+        render: true,
+        solid: true,
+        color: Color::rgb_u8(255, 255, 0),
+    });
     commands.init_resource::<Paused>();
+    commands.init_resource::<Noise>();
     commands.spawn(DirectionalLightBundle {
         directional_light: DirectionalLight {
             color: Color::rgb_u8(255, 255, 200),
@@ -33,7 +45,11 @@ pub(crate) fn setup_camera(mut commands: Commands) {
     commands.spawn((Camera3dBundle {
         transform: Transform::from_xyz(4.0, 8.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
         ..Default::default()
-    }, Player));
+    }, Player, ChunkLoader {
+        x_radius: 2,
+        y_radius: 0,
+        z_radius: 2,
+    }));
 }
 
 pub(crate) fn handle_mouse(
@@ -102,7 +118,40 @@ pub(crate) fn handle_input(
     if keys.pressed(KeyCode::Space) {
         trans.translation += Vec3::Y * SPEED * time.delta_seconds();
     }
+
     if keys.pressed(KeyCode::ShiftLeft) {
         trans.translation += Vec3::NEG_Y * SPEED * time.delta_seconds();
+    }
+}
+
+pub(crate) fn generate_chunk(
+    mut voxels: ResMut<Voxels>,
+    mut rx: EventReader<GenerateChunk>,
+    mut tx: EventWriter<ConstructChunkMesh>,
+    noise: Res<Noise>,
+) {
+    for &GenerateChunk { x, y, z } in rx.read() {
+        let (chunk_x, chunk_y, chunk_z) = (x, y, z);
+        let solid = voxels.id_from_name("solid").unwrap();
+        for x in 0..CHUNK_SIZE_I32 {
+            for y in 0..5 {
+                for z in 0..CHUNK_SIZE_I32 {
+                    if noise.0.get([
+                        (x as f32 + chunk_x as f32 * CHUNK_DIM) as f64 * 0.07,
+                        (y as f32 + chunk_y as f32 * CHUNK_DIM) as f64 * 0.07,
+                        (z as f32 + chunk_z as f32 * CHUNK_DIM) as f64 * 0.07,
+                    ]) > 0.0 {
+                        voxels.set_block(
+                            chunk_x * CHUNK_SIZE_I32 + x,
+                            chunk_y * CHUNK_SIZE_I32 + y,
+                            chunk_z * CHUNK_SIZE_I32 + z,
+                            solid
+                        );
+                    }
+                }
+            }
+        }
+
+        tx.send(ConstructChunkMesh { x, y, z });
     }
 }

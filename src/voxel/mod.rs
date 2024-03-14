@@ -6,7 +6,7 @@ use crate::*;
 pub mod components;
 mod mesh_data;
 
-pub const CHUNK_SIZE: usize = 32;
+pub const CHUNK_SIZE: usize = 16;
 pub const CHUNK_SIZE_I32: i32 = CHUNK_SIZE as i32;
 pub const CHUNK_DIM: f32 = CHUNK_SIZE as f32;
 pub const CHUNK_SIZE_SQ: usize = CHUNK_SIZE * CHUNK_SIZE;
@@ -19,6 +19,10 @@ impl VoxelId {
     pub fn air() -> VoxelId {
         VoxelId(0)
     }
+
+    pub fn config(self, voxels: &Voxels) -> &VoxelConfigEntry {
+        &voxels.configs[&self]
+    }
 }
 
 #[derive(Resource)]
@@ -27,6 +31,7 @@ pub struct Voxels {
     configs: HashMap<VoxelId, VoxelConfigEntry>,
     voxel_names: HashMap<String, VoxelId>,
     next_id: VoxelId,
+    loaded_chunk_mark: bool,
 }
 
 impl Default for Voxels {
@@ -39,7 +44,6 @@ impl Default for Voxels {
                     debug_name: "air".to_owned(),
                     render: false,
                     solid: false,
-                    stay_cube: false,
                     color: Color::rgba_u8(0, 0, 0, 0),
                 });
                 map
@@ -50,6 +54,7 @@ impl Default for Voxels {
                 map
             },
             next_id: VoxelId(1),
+            loaded_chunk_mark: false,
         }
     }
 }
@@ -61,7 +66,6 @@ impl Voxels {
         x: i32,
         y: i32,
         z: i32,
-        should_load: bool,
     ) -> bool {
         let Entry::Vacant(v) = self.chunks.entry((x, y, z))
         else {
@@ -74,18 +78,14 @@ impl Voxels {
             z as f32 * CHUNK_SIZE as f32,
         );
 
-        let entity = if should_load {
-            commands.spawn((SpatialBundle {
-                transform,
-                ..Default::default()
-            }, LoadedChunk))
-        } else {
-            commands.spawn(SpatialBundle {
-                transform,
-                visibility: Visibility::Hidden,
-                ..Default::default()
-            })
-        }.id();
+        let entity = commands.spawn((SpatialBundle {
+            transform,
+            visibility: Visibility::Hidden,
+            ..Default::default()
+        }, Chunk {
+            loaded: false,
+            mark: false,
+        })).id();
 
         let voxels: Box<[VoxelId; CHUNK_SIZE_CB]> =
             vec![VoxelId::air(); CHUNK_SIZE_CB]
@@ -131,23 +131,23 @@ impl Voxels {
         }
     }
 
-    pub fn get_block(&mut self, x: i32, y: i32, z: i32) -> Option<VoxelId> {
+    pub fn get_block(&self, x: i32, y: i32, z: i32) -> VoxelId {
         let (i, j, k) = (
             x.div_euclid(CHUNK_SIZE as i32),
             y.div_euclid(CHUNK_SIZE as i32),
             z.div_euclid(CHUNK_SIZE as i32),
         );
 
-        if let Some(chunk) = self.chunks.get_mut(&(i, j, k)) {
+        if let Some(chunk) = self.chunks.get(&(i, j, k)) {
             let (i, j, k) = (
                 x.rem_euclid(CHUNK_SIZE as i32),
                 y.rem_euclid(CHUNK_SIZE as i32),
                 z.rem_euclid(CHUNK_SIZE as i32),
             );
 
-            Some(chunk.get_block(i, j, k))
+            chunk.get_block(i, j, k)
         } else {
-            None
+            VoxelId::air()
         }
     }
 
@@ -198,13 +198,13 @@ impl ChunkVoxels {
 pub struct VoxelConfigEntry {
     pub debug_name: String,
     pub render: bool,
-    pub stay_cube: bool,
     pub solid: bool,
     pub color: Color,
 }
 
 fn setup_voxels(mut commands: Commands) {
     commands.init_resource::<Voxels>();
+    commands.init_resource::<Events<GenerateChunk>>();
     commands.init_resource::<Events<ConstructChunkMesh>>();
     commands.init_resource::<Events<ChunkMeshUpdate>>();
 }
@@ -212,9 +212,10 @@ fn setup_voxels(mut commands: Commands) {
 fn load_chunks(
     mut commands: Commands,
     mut voxels: ResMut<Voxels>,
-    mut queue: EventWriter<ConstructChunkMesh>,
+    mut tx_gen: EventWriter<GenerateChunk>,
+    mut tx_cons: EventWriter<ConstructChunkMesh>,
     loaders: Query<(&ChunkLoader, &Transform)>,
-    // _loaded: Query<Entity, With<LoadedChunk>>,
+    mut chunks: Query<(&mut Chunk, &mut Visibility)>,
 ) {
     for (loader, trans) in loaders.iter() {
         let (chunk_x, chunk_y, chunk_z) = (
@@ -223,52 +224,43 @@ fn load_chunks(
             trans.translation.z.div_euclid(CHUNK_SIZE as f32) as i32,
         );
 
-        for x in chunk_x - loader.radius ..= chunk_x + loader.radius {
-            for y in chunk_y - loader.radius ..= chunk_y + loader.radius {
-                for z in chunk_z - loader.radius ..= chunk_z + loader.radius {
+        for x in chunk_x - loader.x_radius ..= chunk_x + loader.x_radius {
+            for y in chunk_y - loader.y_radius ..= chunk_y + loader.y_radius {
+                for z in chunk_z - loader.z_radius ..= chunk_z + loader.z_radius {
                     if voxels.add_chunk(
                         commands.reborrow(),
                         x, y, z,
-                        true,
                     ) {
-                        queue.send(ConstructChunkMesh::new(x, y, z));
+                        tx_gen.send(GenerateChunk::new(x, y, z));
+                        tx_cons.send(ConstructChunkMesh::new(x + 1, y + 0, z + 0));
+                        tx_cons.send(ConstructChunkMesh::new(x + 0, y + 1, z + 0));
+                        tx_cons.send(ConstructChunkMesh::new(x + 0, y + 0, z + 1));
+                        tx_cons.send(ConstructChunkMesh::new(x - 1, y + 0, z + 0));
+                        tx_cons.send(ConstructChunkMesh::new(x + 0, y - 1, z + 0));
+                        tx_cons.send(ConstructChunkMesh::new(x + 0, y + 0, z - 1));
+                    }
+
+                    if let Some(chunk) = voxels.get_chunk(x, y, z) {
+                        commands.entity(chunk.entity)
+                            .insert(Visibility::Visible)
+                            .insert(Chunk {
+                                loaded: true,
+                                mark: voxels.loaded_chunk_mark,
+                            });
                     }
                 }
             }
         }
     }
-}
 
-fn post_setup_voxels_test(
-    mut commands: Commands,
-    mut voxels: ResMut<Voxels>,
-    mut queue: EventWriter<ConstructChunkMesh>,
-) {
-    let solid = voxels.add_voxel("solid", VoxelConfigEntry {
-        debug_name: "solid".to_owned(),
-        render: true,
-        stay_cube: true,
-        solid: true,
-        color: Color::rgb_u8(255, 255, 0),
-    });
-
-    if voxels.add_chunk(
-        commands.reborrow(),
-        0, 0, 0,
-        true,
-    ) {
-        for x in 0..CHUNK_SIZE_I32 {
-            for y in 0..CHUNK_SIZE_I32 {
-                for z in 0..CHUNK_SIZE_I32 {
-                    if rand::random() {
-                        voxels.set_block(x, y, z, solid);
-                    }
-                }
-            }
+    for (mut chunk, mut vis) in chunks.iter_mut() {
+        if chunk.mark != voxels.loaded_chunk_mark {
+            *vis = Visibility::Hidden;
+            chunk.loaded = false;
         }
-
-        queue.send(ConstructChunkMesh::new(0, 0, 0));
     }
+
+    voxels.loaded_chunk_mark ^= true;
 }
 
 pub struct VoxelPlugin;
@@ -276,7 +268,7 @@ pub struct VoxelPlugin;
 impl Plugin for VoxelPlugin {
     fn build(&self, app: &mut App) {
         app
-            .add_systems(Startup, (setup_voxels, post_setup_voxels_test).chain())
+            .add_systems(PreStartup, setup_voxels)
             .add_systems(Update, (
                 load_chunks,
                 handle_chunk_constructions,
