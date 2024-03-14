@@ -6,9 +6,10 @@ use crate::*;
 pub mod components;
 mod mesh_data;
 
-pub const CHUNK_SIZE: usize = 16;
+pub const VOXEL_SIZE: f32 = 0.5;
+pub const CHUNK_SIZE: usize = 32;
 pub const CHUNK_SIZE_I32: i32 = CHUNK_SIZE as i32;
-pub const CHUNK_DIM: f32 = CHUNK_SIZE as f32;
+pub const CHUNK_DIM: f32 = CHUNK_SIZE as f32 * VOXEL_SIZE;
 pub const CHUNK_SIZE_SQ: usize = CHUNK_SIZE * CHUNK_SIZE;
 pub const CHUNK_SIZE_CB: usize = CHUNK_SIZE_SQ * CHUNK_SIZE;
 
@@ -73,9 +74,9 @@ impl Voxels {
         };
 
         let transform = Transform::from_xyz(
-            x as f32 * CHUNK_SIZE as f32,
-            y as f32 * CHUNK_SIZE as f32,
-            z as f32 * CHUNK_SIZE as f32,
+            x as f32 * CHUNK_DIM,
+            y as f32 * CHUNK_DIM,
+            z as f32 * CHUNK_DIM,
         );
 
         let entity = commands.spawn((SpatialBundle {
@@ -219,9 +220,9 @@ fn load_chunks(
 ) {
     for (loader, trans) in loaders.iter() {
         let (chunk_x, chunk_y, chunk_z) = (
-            trans.translation.x.div_euclid(CHUNK_SIZE as f32) as i32,
-            trans.translation.y.div_euclid(CHUNK_SIZE as f32) as i32,
-            trans.translation.z.div_euclid(CHUNK_SIZE as f32) as i32,
+            trans.translation.x.div_euclid(CHUNK_DIM) as i32,
+            trans.translation.y.div_euclid(CHUNK_DIM) as i32,
+            trans.translation.z.div_euclid(CHUNK_DIM) as i32,
         );
 
         for x in chunk_x - loader.x_radius ..= chunk_x + loader.x_radius {

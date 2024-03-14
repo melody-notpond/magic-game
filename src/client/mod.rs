@@ -1,7 +1,9 @@
 use bevy::{window::CursorGrabMode, input::mouse::MouseMotion};
 use noise::{NoiseFn, Perlin};
 
-use crate::{*, voxel::{components::{GenerateChunk, ConstructChunkMesh, ChunkLoader}, Voxels, CHUNK_DIM, CHUNK_SIZE_I32, VoxelConfigEntry}};
+use crate::voxel::{Voxels, CHUNK_DIM, CHUNK_SIZE_I32, VoxelConfigEntry, VOXEL_SIZE};
+use crate::voxel::components::{GenerateChunk, ConstructChunkMesh, ChunkLoader};
+use crate::*;
 
 #[derive(Component)]
 pub struct Player;
@@ -46,9 +48,9 @@ pub(crate) fn setup_camera(mut commands: Commands) {
         transform: Transform::from_xyz(4.0, 8.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
         ..Default::default()
     }, Player, ChunkLoader {
-        x_radius: 2,
+        x_radius: 4,
         y_radius: 0,
-        z_radius: 2,
+        z_radius: 4,
     }));
 }
 
@@ -137,9 +139,9 @@ pub(crate) fn generate_chunk(
             for y in 0..5 {
                 for z in 0..CHUNK_SIZE_I32 {
                     if noise.0.get([
-                        (x as f32 + chunk_x as f32 * CHUNK_DIM) as f64 * 0.07,
-                        (y as f32 + chunk_y as f32 * CHUNK_DIM) as f64 * 0.07,
-                        (z as f32 + chunk_z as f32 * CHUNK_DIM) as f64 * 0.07,
+                        (x as f32 * VOXEL_SIZE + chunk_x as f32 * CHUNK_DIM) as f64 * 0.07,
+                        (y as f32 * VOXEL_SIZE + chunk_y as f32 * CHUNK_DIM) as f64 * 0.07,
+                        (z as f32 * VOXEL_SIZE + chunk_z as f32 * CHUNK_DIM) as f64 * 0.07,
                     ]) > 0.0 {
                         voxels.set_block(
                             chunk_x * CHUNK_SIZE_I32 + x,

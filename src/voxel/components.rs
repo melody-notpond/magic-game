@@ -2,7 +2,7 @@ use crate::*;
 use bevy::render::mesh::Indices;
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::render::render_resource::PrimitiveTopology;
-use voxel::{CHUNK_SIZE_I32, Voxels};
+use voxel::{CHUNK_SIZE_I32, Voxels, VOXEL_SIZE};
 use voxel::mesh_data::*;
 
 #[derive(Component)]
@@ -104,9 +104,9 @@ pub(super) fn handle_chunk_constructions(
                     indices.extend(CUBE_INDICES.iter().map(|i| i + vertices.len() as u32));
                     normals.extend(&CUBE_NORMALS[face]);
                     vertices.extend(CUBE_VERTICES[face].iter().map(|v| [
-                        v[0] + x as f32,
-                        v[1] + y as f32,
-                        v[2] + z as f32,
+                        (v[0] + x as f32) * VOXEL_SIZE,
+                        (v[1] + y as f32) * VOXEL_SIZE,
+                        (v[2] + z as f32) * VOXEL_SIZE,
                     ]));
                 }
             }
