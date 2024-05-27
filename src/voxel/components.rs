@@ -1,9 +1,15 @@
+use std::sync::{Arc, RwLock};
+
 use crate::*;
 use bevy::render::mesh::Indices;
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::render::render_resource::PrimitiveTopology;
+use bevy::tasks::futures_lite::future;
+use bevy::tasks::{AsyncComputeTaskPool, Task};
 use voxel::{CHUNK_SIZE_I32, Voxels, VOXEL_SIZE};
 use voxel::mesh_data::*;
+
+use super::VoxelRes;
 
 #[derive(Component)]
 pub(super) struct Chunk {
@@ -44,40 +50,76 @@ impl ConstructChunkMesh {
     }
 }
 
-#[derive(Event)]
-pub(super) struct ChunkMeshUpdate {
-    x: i32,
-    y: i32,
-    z: i32,
-    vertices: Vec<[f32; 3]>,
-    normals: Vec<[f32; 3]>,
-    indices: Vec<u32>,
+#[derive(Component)]
+pub(super) struct ChunkMeshWaiter(Task<Mesh>);
+
+pub(super) fn init_chunk_construction(
+    mut commands: Commands,
+    voxels: Res<VoxelRes>,
+    mut rx: EventReader<ConstructChunkMesh>,
+) {
+    let v = voxels.clone();
+    let Ok(voxels) = voxels.try_read()
+    else {
+        return;
+    };
+
+    let pool = AsyncComputeTaskPool::get();
+    for &ConstructChunkMesh { x, y, z } in rx.read() {
+        let Some(chunk) = voxels.get_chunk(x, y, z)
+        else {
+            continue;
+        };
+
+        let task = pool.spawn(construct_chunk(x, y, z, v.clone()));
+        commands.entity(chunk.entity).insert(ChunkMeshWaiter(task));
+    }
 }
 
-pub(super) fn handle_chunk_constructions(
-    mut rx: EventReader<ConstructChunkMesh>,
-    mut tx: EventWriter<ChunkMeshUpdate>,
-    voxels: Res<Voxels>,
+pub(super) fn handle_chunk_mesh_update(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut waiting_chunks: Query<(Entity, &mut ChunkMeshWaiter)>,
 ) {
-    let Some(&ConstructChunkMesh { x: chunk_x, y: chunk_y, z: chunk_z }) = rx.read().next()
-    else {
-        return;
-    };
+    for (entity, mut waiter) in waiting_chunks.iter_mut() {
+        let Some(mesh) = future::block_on(future::poll_once(&mut waiter.0))
+        else {
+            continue;
+        };
 
-    let Some(chunk) = voxels.get_chunk(chunk_x, chunk_y, chunk_z)
-    else {
-        return;
-    };
+        let material = StandardMaterial {
+            base_color: Color::rgb_u8(255, 255, 0),
+            ..Default::default()
+        };
 
+        commands.entity(entity)
+            .insert(meshes.add(mesh))
+            .insert(materials.add(material))
+            .remove::<ChunkMeshWaiter>();
+    }
+}
+
+async fn construct_chunk(
+    chunk_x: i32,
+    chunk_y: i32,
+    chunk_z: i32,
+    voxels: Arc<RwLock<Voxels>>,
+) -> Mesh {
     let mut vertices: Vec<[f32; 3]> = Vec::new();
     let mut normals: Vec<[f32; 3]> = Vec::new();
     let mut indices: Vec<u32> = Vec::new();
+
+    let chx = CHUNK_SIZE_I32 * chunk_x;
+    let chy = CHUNK_SIZE_I32 * chunk_y;
+    let chz = CHUNK_SIZE_I32 * chunk_z;
     for x in 0..CHUNK_SIZE_I32 {
         for y in 0..CHUNK_SIZE_I32 {
             for z in 0..CHUNK_SIZE_I32 {
-                let voxel = chunk.get_block(x, y, z);
-                let config = &voxels.configs[&voxel];
-                if !config.render {
+                let voxel = voxels.read().unwrap()
+                    .get_block(chx + x, chy + y, chz + z);
+
+                if !voxel.config(&*voxels.read().unwrap()).render {
                     continue;
                 }
 
@@ -90,14 +132,11 @@ pub(super) fn handle_chunk_constructions(
                         (0, -1, 0),
                         (0, 0, -1),
                     ][face];
-                    let neighbor = voxels.get_block(
-                        chunk_x * CHUNK_SIZE_I32 + x + x_off,
-                        chunk_y * CHUNK_SIZE_I32 + y + y_off,
-                        chunk_z * CHUNK_SIZE_I32 + z + z_off,
-                    );
-                    let neighbor_config = &voxels.configs[&neighbor];
+                    let neighbor = voxels.read().unwrap()
+                        .get_block(
+                            chx + x + x_off, chy + y + y_off, chz + z + z_off);
 
-                    if neighbor_config.render {
+                    if neighbor.config(&*voxels.read().unwrap()).render {
                         continue;
                     }
 
@@ -113,43 +152,14 @@ pub(super) fn handle_chunk_constructions(
         }
     }
 
-    tx.send(ChunkMeshUpdate {
-        x: chunk_x,
-        y: chunk_y,
-        z: chunk_z,
-        vertices,
-        normals,
-        indices,
-    });
-}
-
-pub(super) fn handle_chunk_mesh_update(
-    mut commands: Commands,
-    mut rx: EventReader<ChunkMeshUpdate>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    voxels: Res<Voxels>,
-) {
-    for ChunkMeshUpdate { x, y, z, vertices, normals, indices } in rx.read() {
-        let (x, y, z) = (*x, *y, *z);
-        if let Some(chunk) = voxels.get_chunk(x, y, z) {
-            let mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
-                .with_inserted_attribute(
-                    Mesh::ATTRIBUTE_POSITION,
-                    vertices.clone(),
-                )
-                .with_inserted_attribute(
-                    Mesh::ATTRIBUTE_NORMAL,
-                    normals.clone(),
-                )
-                .with_inserted_indices(Indices::U32(indices.clone()));
-            let material = StandardMaterial {
-                base_color: Color::rgb_u8(255, 255, 0),
-                ..Default::default()
-            };
-            let mut entity = commands.entity(chunk.entity);
-            entity.insert(meshes.add(mesh));
-            entity.insert(materials.add(material));
-        }
-    }
+    Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+        .with_inserted_attribute(
+            Mesh::ATTRIBUTE_POSITION,
+            vertices,
+        )
+        .with_inserted_attribute(
+            Mesh::ATTRIBUTE_NORMAL,
+            normals,
+        )
+        .with_inserted_indices(Indices::U32(indices))
 }

@@ -1,9 +1,11 @@
 use bevy::{window::CursorGrabMode, input::mouse::MouseMotion};
 use noise::{NoiseFn, Perlin};
 
-use crate::voxel::{Voxels, CHUNK_DIM, CHUNK_SIZE_I32, VoxelConfigEntry, VOXEL_SIZE};
-use crate::voxel::components::{GenerateChunk, ConstructChunkMesh, ChunkLoader};
+use crate::voxel::{VoxelRes, CHUNK_DIM, CHUNK_SIZE_I32, VoxelConfigEntry, VOXEL_SIZE};
+use crate::voxel::components::ChunkLoader;
 use crate::*;
+
+use self::voxel::{ChunkGenerator, VoxelId, Voxels, CHUNK_SIZE_CB};
 
 #[derive(Component)]
 pub struct Player;
@@ -11,17 +13,19 @@ pub struct Player;
 #[derive(Resource, Default)]
 pub struct Paused(bool);
 
-#[derive(Resource, Default)]
-pub struct Noise(Perlin);
-
 pub(crate) fn setup_scene(
     mut commands: Commands,
     mut windows: Query<&mut Window>,
-    mut voxels: ResMut<Voxels>,
+    voxels: Res<VoxelRes>,
 ) {
     let mut window = windows.single_mut();
     window.cursor.visible = false;
     window.cursor.grab_mode = CursorGrabMode::Locked;
+
+    let Ok(mut voxels) = voxels.write()
+    else {
+        return;
+    };
 
     voxels.add_voxel("solid", VoxelConfigEntry {
         debug_name: "solid".to_owned(),
@@ -30,7 +34,6 @@ pub(crate) fn setup_scene(
         color: Color::rgb_u8(255, 255, 0),
     });
     commands.init_resource::<Paused>();
-    commands.init_resource::<Noise>();
     commands.spawn(DirectionalLightBundle {
         directional_light: DirectionalLight {
             color: Color::rgb_u8(255, 255, 200),
@@ -45,12 +48,13 @@ pub(crate) fn setup_scene(
 
 pub(crate) fn setup_camera(mut commands: Commands) {
     commands.spawn((Camera3dBundle {
-        transform: Transform::from_xyz(4.0, 8.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
+        transform: Transform::from_xyz(4.0, 8.0, 4.0)
+            .looking_to(Vec3::X, Vec3::Y),
         ..Default::default()
     }, Player, ChunkLoader {
-        x_radius: 4,
+        x_radius: 20,
         y_radius: 0,
-        z_radius: 4,
+        z_radius: 20,
     }));
 }
 
@@ -126,27 +130,32 @@ pub(crate) fn handle_input(
     }
 }
 
-pub(crate) fn generate_chunk(
-    mut voxels: ResMut<Voxels>,
-    mut rx: EventReader<GenerateChunk>,
-    mut tx: EventWriter<ConstructChunkMesh>,
-    noise: Res<Noise>,
-) {
-    for &GenerateChunk { x, y, z } in rx.read() {
-        let (chunk_x, chunk_y, chunk_z) = (x, y, z);
+#[derive(Default)]
+pub(crate) struct NoiseChunkGen {
+    noise: Perlin,
+}
+
+impl ChunkGenerator for NoiseChunkGen {
+    fn generate(&mut self, chunk_x: i32, chunk_y: i32, chunk_z: i32,
+        voxels: &Voxels,
+        chunk_voxels: &mut [VoxelId; CHUNK_SIZE_CB]) -> bool {
         let solid = voxels.id_from_name("solid").unwrap();
         for x in 0..CHUNK_SIZE_I32 {
             for y in 0..5 {
                 for z in 0..CHUNK_SIZE_I32 {
-                    if noise.0.get([
-                        (x as f32 * VOXEL_SIZE + chunk_x as f32 * CHUNK_DIM) as f64 * 0.07,
-                        (y as f32 * VOXEL_SIZE + chunk_y as f32 * CHUNK_DIM) as f64 * 0.07,
-                        (z as f32 * VOXEL_SIZE + chunk_z as f32 * CHUNK_DIM) as f64 * 0.07,
+                    if self.noise.get([
+                        (x as f32 * VOXEL_SIZE + chunk_x as f32 * CHUNK_DIM)
+                            as f64 * 0.07,
+                        (y as f32 * VOXEL_SIZE + chunk_y as f32 * CHUNK_DIM)
+                            as f64 * 0.07,
+                        (z as f32 * VOXEL_SIZE + chunk_z as f32 * CHUNK_DIM)
+                            as f64 * 0.07,
                     ]) > 0.0 {
-                        voxels.set_block(
-                            chunk_x * CHUNK_SIZE_I32 + x,
-                            chunk_y * CHUNK_SIZE_I32 + y,
-                            chunk_z * CHUNK_SIZE_I32 + z,
+                        voxel::set_chunk_voxel(
+                            chunk_voxels,
+                            x,
+                            y,
+                            z,
                             solid
                         );
                     }
@@ -154,6 +163,6 @@ pub(crate) fn generate_chunk(
             }
         }
 
-        tx.send(ConstructChunkMesh { x, y, z });
+        true
     }
 }
