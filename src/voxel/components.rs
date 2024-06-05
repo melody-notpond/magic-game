@@ -51,7 +51,7 @@ impl ConstructChunkMesh {
 }
 
 #[derive(Component)]
-pub(super) struct ChunkMeshWaiter(Task<Mesh>);
+pub(super) struct ChunkMeshWaiter(Task<(Collider, Mesh)>);
 
 pub(super) fn init_chunk_construction(
     mut commands: Commands,
@@ -83,7 +83,8 @@ pub(super) fn handle_chunk_mesh_update(
     mut waiting_chunks: Query<(Entity, &mut ChunkMeshWaiter)>,
 ) {
     for (entity, mut waiter) in waiting_chunks.iter_mut() {
-        let Some(mesh) = future::block_on(future::poll_once(&mut waiter.0))
+        let Some((col, mesh)) =
+            future::block_on(future::poll_once(&mut waiter.0))
         else {
             continue;
         };
@@ -94,6 +95,7 @@ pub(super) fn handle_chunk_mesh_update(
         };
 
         commands.entity(entity)
+            .insert(col)
             .insert(meshes.add(mesh))
             .insert(materials.add(material))
             .remove::<ChunkMeshWaiter>();
@@ -105,7 +107,7 @@ async fn construct_chunk(
     chunk_y: i32,
     chunk_z: i32,
     voxels: Arc<RwLock<Voxels>>,
-) -> Mesh {
+) -> (Collider, Mesh) {
     let mut vertices: Vec<[f32; 3]> = Vec::new();
     let mut normals: Vec<[f32; 3]> = Vec::new();
     let mut indices: Vec<u32> = Vec::new();
@@ -152,6 +154,10 @@ async fn construct_chunk(
         }
     }
 
+    (Collider::trimesh(
+        vertices.iter().map(|&[x, y, z]| Vec3::new(x, y, z)).collect(),
+        indices.chunks(3).map(|x| TryInto::<[u32; 3]>::try_into(x).unwrap())
+            .collect()),
     Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
         .with_inserted_attribute(
             Mesh::ATTRIBUTE_POSITION,
@@ -161,5 +167,5 @@ async fn construct_chunk(
             Mesh::ATTRIBUTE_NORMAL,
             normals,
         )
-        .with_inserted_indices(Indices::U32(indices))
+        .with_inserted_indices(Indices::U32(indices)))
 }

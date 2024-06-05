@@ -86,7 +86,7 @@ impl Voxels {
             transform,
             visibility: Visibility::Hidden,
             ..Default::default()
-        }, Chunk {
+        }, RigidBody::Fixed, Chunk {
             loaded: false,
             mark: false,
         })).id();

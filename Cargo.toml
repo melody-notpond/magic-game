@@ -14,5 +14,6 @@ opt-level = 3
 [dependencies]
 bevy = "0.13.0"
 bevy-inspector-egui = "0.23.4"
+bevy_rapier3d = { version = "0.26.0", features = ["debug-render-3d"] }
 crossbeam-channel = "0.5.13"
 noise = "0.8.2"

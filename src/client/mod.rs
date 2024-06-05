@@ -46,16 +46,35 @@ pub(crate) fn setup_scene(
     });
 }
 
-pub(crate) fn setup_camera(mut commands: Commands) {
-    commands.spawn((Camera3dBundle {
-        transform: Transform::from_xyz(4.0, 8.0, 4.0)
-            .looking_to(Vec3::X, Vec3::Y),
-        ..Default::default()
-    }, Player, ChunkLoader {
-        x_radius: 20,
-        y_radius: 0,
-        z_radius: 20,
-    }));
+pub(crate) fn setup_player(mut commands: Commands) {
+    commands.spawn((TransformBundle {
+            local: Transform::from_xyz(4.0, 8.0, 4.0)
+                .looking_to(Vec3::NEG_Z, Vec3::Y),
+            ..Default::default()
+        }, Player, ChunkLoader {
+            x_radius: 10,
+            y_radius: 0,
+            z_radius: 10
+        }, RigidBody::KinematicPositionBased,
+        Collider::capsule_y(1.7, 0.4),
+        KinematicCharacterController {
+            offset: CharacterLength::Absolute(0.01),
+            autostep: Some(CharacterAutostep {
+                max_height: CharacterLength::Absolute(0.51),
+                min_width: CharacterLength::Absolute(0.49),
+                include_dynamic_bodies: false,
+            }),
+            snap_to_ground: Some(CharacterLength::Absolute(0.51)),
+            apply_impulse_to_dynamic_bodies: true,
+            ..default()
+        }))
+    .with_children(|cs| {
+        cs.spawn(Camera3dBundle {
+            transform: Transform::from_xyz(0.0, 1.6, 0.0)
+                .looking_to(Vec3::NEG_Z, Vec3::Y),
+            ..Default::default()
+        });
+    });
 }
 
 pub(crate) fn handle_mouse(
@@ -78,7 +97,8 @@ pub(crate) fn handle_mouse(
 pub(crate) fn handle_input(
     mut paused: ResMut<Paused>,
     mut windows: Query<&mut Window>,
-    mut q: Query<&mut Transform, With<Player>>,
+    mut q: Query<(&mut KinematicCharacterController, &Transform),
+        With<Player>>,
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
 ) {
@@ -98,7 +118,7 @@ pub(crate) fn handle_input(
         return;
     }
 
-    let mut trans = q.single_mut();
+    let (mut cont, trans) = q.single_mut();
     let mut forward: Vec3 = trans.forward().into();
     forward.y = 0.0;
     let left: Vec3 = trans.left().into();
@@ -119,15 +139,17 @@ pub(crate) fn handle_input(
         add += -left;
     }
 
-    trans.translation += add.normalize_or_zero() * SPEED * time.delta_seconds();
+    add = add.normalize_or_zero() * SPEED * time.delta_seconds();
 
     if keys.pressed(KeyCode::Space) {
-        trans.translation += Vec3::Y * SPEED * time.delta_seconds();
+        add += Vec3::Y * SPEED * time.delta_seconds();
     }
 
     if keys.pressed(KeyCode::ShiftLeft) {
-        trans.translation += Vec3::NEG_Y * SPEED * time.delta_seconds();
+        add += Vec3::NEG_Y * SPEED * time.delta_seconds();
     }
+
+    cont.translation = Some(add);
 }
 
 #[derive(Default)]
