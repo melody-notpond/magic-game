@@ -3,6 +3,12 @@ name = "magic-game"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "client"
+
+[[bin]]
+name = "server"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [profile.dev]
@@ -16,4 +22,6 @@ bevy = "0.13.0"
 bevy-inspector-egui = "0.23.4"
 bevy_rapier3d = { version = "0.26.0", features = ["debug-render-3d"] }
 crossbeam-channel = "0.5.13"
+lightyear = "0.15.1"
 noise = "0.8.2"
+serde = "1.0.203"
